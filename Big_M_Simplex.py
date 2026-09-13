@@ -48,16 +48,19 @@ class Term:
 def to_term(x):
     if isinstance(x, Term):
         return x
+
     return Term(0, x)
 
 
-def print_tableau(table, basis, cb, columns, iteration):
+def print_table(table, basis, cb, columns, iteration):
 
     print("\n" + "=" * 100)
-    print("ITERATION", iteration)
+    print(f"ITERATION {iteration}")
     print("=" * 100)
 
-    print("Cb | BV |", " | ".join(columns), "| RHS")
+    headers = ["Cb", "BV"] + columns + ["RHS"]
+
+    print(" | ".join(f"{h:^10}" for h in headers))
     print("-" * 100)
 
     for i in range(len(table)):
@@ -72,72 +75,124 @@ def print_tableau(table, basis, cb, columns, iteration):
         print(" | ".join(f"{x:^10}" for x in row))
 
 
-def big_m_simplex(A, b, signs, c):
+def big_m_simplex():
 
-    A = [[Fraction(x) for x in row] for row in A]
-    b = [Fraction(x) for x in b]
-    c = [Fraction(x) for x in c]
+    # ========================================================
+    # PROBLEM DATA
+    # ========================================================
 
-    m = len(A)
-    n = len(c)
+    c = [20, 6, 12]
 
-    columns = [f"x{i+1}" for i in range(n)]
-    table = [A[i][:] + [b[i]] for i in range(m)]
+    A = [
+        [3, 1, 1],
+        [4, 4, 2],
+        [4, 1, 2]
+    ]
 
-    basis = [None] * m
-    slack = 0
-    artificial = 0
+    b = [45, 41, 15]
 
-    for i in range(m):
+    signs = ["<=", "=", "="]
 
-        if signs[i] == "<=":
+    # ========================================================
+    # PRINT PROBLEM
+    # ========================================================
 
-            slack += 1
-            name = f"s{slack}"
+    print("\n" + "=" * 100)
+    print("BIG-M SIMPLEX METHOD")
+    print("=" * 100)
 
-            for row in table:
-                row.insert(-1, Fraction(0))
+    print("\nProblem Formulation:")
 
-            table[i][-2] = 1
-            columns.append(name)
-            basis[i] = name
+    print("\nMaximize")
+    print("Z = 20x1 + 6x2 + 12x3")
 
-        elif signs[i] == "=":
+    print("\nSubject to:")
+    print("3x1 + x2 + x3 <= 45")
+    print("4x1 + 4x2 + 2x3 = 41")
+    print("4x1 + x2 + 2x3 = 15")
 
-            artificial += 1
-            name = f"A{artificial}"
+    print("\nx1, x2, x3 >= 0")
 
-            for row in table:
-                row.insert(-1, Fraction(0))
+    # ========================================================
+    # STANDARD FORM
+    # ========================================================
 
-            table[i][-2] = 1
-            columns.append(name)
-            basis[i] = name
+    print("\nStandard Form:")
 
-    cj = [Term(0, x) for x in c]
+    print("3x1 + x2 + x3 + s1 = 45")
+    print("4x1 + 4x2 + 2x3 + A1 = 41")
+    print("4x1 + x2 + 2x3 + A2 = 15")
 
-    for name in columns[n:]:
+    print("\nObjective Function:")
+    print("Maximize Z = 20x1 + 6x2 + 12x3 - M A1 - M A2")
 
-        if name.startswith("A"):
-            cj.append(Term(-1, 0))
-        else:
-            cj.append(Term(0, 0))
+    # ========================================================
+    # INITIAL TABLEAU
+    # ========================================================
 
-    cb = []
+    columns = [
+        "x1", "x2", "x3",
+        "s1", "A1", "A2"
+    ]
 
-    for name in basis:
+    cj = [
+        Term(0, 20),
+        Term(0, 6),
+        Term(0, 12),
+        Term(0, 0),
+        Term(-1, 0),
+        Term(-1, 0)
+    ]
 
-        for j in range(len(columns)):
+    table = [
+        [
+            Fraction(3),
+            Fraction(1),
+            Fraction(1),
+            Fraction(1),
+            Fraction(0),
+            Fraction(0),
+            Fraction(45)
+        ],
 
-            if columns[j] == name:
-                cb.append(cj[j])
-                break
+        [
+            Fraction(4),
+            Fraction(4),
+            Fraction(2),
+            Fraction(0),
+            Fraction(1),
+            Fraction(0),
+            Fraction(41)
+        ],
+
+        [
+            Fraction(4),
+            Fraction(1),
+            Fraction(2),
+            Fraction(0),
+            Fraction(0),
+            Fraction(1),
+            Fraction(15)
+        ]
+    ]
+
+    basis = ["s1", "A1", "A2"]
+
+    cb = [
+        Term(0, 0),
+        Term(-1, 0),
+        Term(-1, 0)
+    ]
 
     iteration = 1
 
+    # ========================================================
+    # SIMPLEX ITERATIONS
+    # ========================================================
+
     while True:
 
-        print_tableau(
+        print_table(
             table,
             basis,
             cb,
@@ -145,34 +200,51 @@ def big_m_simplex(A, b, signs, c):
             iteration
         )
 
+        # ----------------------------------------------------
+        # Calculate Zj
+        # ----------------------------------------------------
+
         zj = []
 
         for j in range(len(columns)):
 
             value = Term(0)
 
-            for i in range(m):
+            for i in range(len(table)):
                 value += cb[i] * table[i][j]
 
             zj.append(value)
 
+        # ----------------------------------------------------
+        # Calculate Z
+        # ----------------------------------------------------
+
         z = Term(0)
 
-        for i in range(m):
+        for i in range(len(table)):
             z += cb[i] * table[i][-1]
 
-        reduced = [
-            cj[j] - zj[j]
-            for j in range(len(columns))
-        ]
+        # ----------------------------------------------------
+        # Calculate Cj - Zj
+        # ----------------------------------------------------
+
+        reduced = []
+
+        for j in range(len(columns)):
+            reduced.append(cj[j] - zj[j])
 
         print("\nCj - Zj:")
 
         for j in range(len(columns)):
+
             print(
                 f"{columns[j]} = {reduced[j]}",
                 end="   "
             )
+
+        # ----------------------------------------------------
+        # Find entering variable
+        # ----------------------------------------------------
 
         entering = None
 
@@ -192,6 +264,10 @@ def big_m_simplex(A, b, signs, c):
                 ):
                     entering = j
 
+        # ----------------------------------------------------
+        # Optimality
+        # ----------------------------------------------------
+
         if entering is None:
 
             print("\n\n" + "=" * 100)
@@ -199,36 +275,42 @@ def big_m_simplex(A, b, signs, c):
             print("=" * 100)
 
             solution = {
-                name: Fraction(0)
-                for name in columns
+                "x1": Fraction(0),
+                "x2": Fraction(0),
+                "x3": Fraction(0)
             }
 
-            for i in range(m):
-                solution[basis[i]] = table[i][-1]
+            for i in range(len(table)):
 
-            print("\nDecision Variables:")
+                if basis[i] in solution:
+                    solution[basis[i]] = table[i][-1]
 
-            for i in range(n):
-                print(
-                    f"x{i+1} = "
-                    f"{solution[f'x{i+1}']}"
-                )
+            print("\nx1 =", solution["x1"])
+            print("x2 =", solution["x2"])
+            print("x3 =", solution["x3"])
 
-            print(f"\nMaximum Z = {z}")
-            print(f"Maximum Z = {float(z.b):.2f}")
+            print("\nMaximum Z =", z)
+            print(
+                "Maximum Z =",
+                float(z.b)
+            )
 
-            return
+            break
 
         entering_name = columns[entering]
 
         print(
-            f"\n\nEntering variable = "
-            f"{entering_name}"
+            "\n\nEntering variable =",
+            entering_name
         )
+
+        # ----------------------------------------------------
+        # Ratio Test
+        # ----------------------------------------------------
 
         ratios = []
 
-        for i in range(m):
+        for i in range(len(table)):
 
             if table[i][entering] > 0:
 
@@ -243,7 +325,7 @@ def big_m_simplex(A, b, signs, c):
         if not ratios:
 
             print("\nProblem is UNBOUNDED.")
-            return
+            break
 
         ratio, leaving = min(
             ratios,
@@ -251,25 +333,33 @@ def big_m_simplex(A, b, signs, c):
         )
 
         print(
-            f"Leaving variable = "
-            f"{basis[leaving]}"
+            "Leaving variable =",
+            basis[leaving]
         )
+
+        # ----------------------------------------------------
+        # Pivot Operation
+        # ----------------------------------------------------
 
         pivot = table[leaving][entering]
 
         for j in range(len(columns) + 1):
             table[leaving][j] /= pivot
 
-        for i in range(m):
+        for i in range(len(table)):
 
             if i != leaving:
 
                 factor = table[i][entering]
 
-                for j in range(len(columns) + 1):
-                    table[i][j] -= (
-                        factor * table[leaving][j]
-                    )
+                if factor != 0:
+
+                    for j in range(len(columns) + 1):
+
+                        table[i][j] -= (
+                            factor
+                            * table[leaving][j]
+                        )
 
         basis[leaving] = entering_name
         cb[leaving] = cj[entering]
@@ -278,31 +368,7 @@ def big_m_simplex(A, b, signs, c):
 
 
 # ============================================================
-# CASE STUDY
+# RUN
 # ============================================================
 
-A = [
-    [3, 1, 1],
-    [4, 4, 2],
-    [4, 1, 2]
-]
-
-b = [
-    45,
-    41,
-    15
-]
-
-signs = [
-    "<=",
-    "=",
-    "="
-]
-
-c = [
-    20,
-    6,
-    12
-]
-
-big_m_simplex(A, b, signs, c)
+big_m_simplex()

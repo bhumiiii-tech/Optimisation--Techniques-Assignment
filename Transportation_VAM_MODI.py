@@ -1,539 +1,578 @@
-from fractions import Fraction
+import copy
+
+# ============================================================
+# TRANSPORTATION PROBLEM: VAM + MODI
+# ============================================================
+
+# Problem Data
+supply_original = [20, 30, 25]
+demand_original = [10, 25, 20, 20]
+
+cost = [
+    [18, 9, 3, 15],
+    [19, 19, 18, 8],
+    [14, 19, 11, 18]
+]
+
+source_names = ["F1", "F2", "F3"]
+dest_names = ["W1", "W2", "W3", "W4"]
 
 
-def print_table(cost, allocation, supply, demand, title):
-    print("\n" + "=" * 90)
+# ============================================================
+# PRINT TRANSPORTATION TABLE
+# ============================================================
+
+def print_table(allocation, cost, title):
+
+    print("\n" + "=" * 80)
     print(title)
-    print("=" * 90)
+    print("=" * 80)
+
+    header = " " * 8 + "".join(f"{d:>14}" for d in dest_names)
+    print(header)
 
     for i in range(len(cost)):
-        row = []
+
+        row = f"{source_names[i]:<8}"
 
         for j in range(len(cost[0])):
-            if allocation[i][j] is None:
-                row.append("-")
-            elif allocation[i][j] == 0:
-                row.append("0")
+
+            if allocation[i][j] > 0:
+                cell = f"{allocation[i][j]}({cost[i][j]})"
             else:
-                row.append(str(allocation[i][j]))
+                cell = f"-({cost[i][j]})"
 
-        print(f"F{i+1}: {row} | Supply = {supply[i]}")
+            row += f"{cell:>14}"
 
-    print("Demand:", demand)
+        print(row)
 
 
-def penalty(values):
-    values = sorted(values)
+# ============================================================
+# TOTAL TRANSPORTATION COST
+# ============================================================
 
-    if len(values) >= 2:
-        return values[1] - values[0]
+def total_cost(allocation, cost):
 
-    return values[0]
-
-
-def find_penalties(cost, active_rows, active_cols):
-    row_penalty = {}
-
-    for i in active_rows:
-        vals = [cost[i][j] for j in active_cols]
-        row_penalty[i] = penalty(vals)
-
-    col_penalty = {}
-
-    for j in active_cols:
-        vals = [cost[i][j] for i in active_rows]
-        col_penalty[j] = penalty(vals)
-
-    return row_penalty, col_penalty
-
-
-def add_basic_without_cycle(basic, cell, m, n):
-    r, c = cell
-
-    graph = [[] for _ in range(m + n)]
-
-    for i, j in basic:
-        graph[i].append(m + j)
-        graph[m + j].append(i)
-
-    start = r
-    target = m + c
-
-    stack = [start]
-    visited = set()
-
-    while stack:
-        node = stack.pop()
-
-        if node == target:
-            return False
-
-        if node in visited:
-            continue
-
-        visited.add(node)
-
-        for nxt in graph[node]:
-            if nxt not in visited:
-                stack.append(nxt)
-
-    return True
-
-
-def ensure_non_degenerate(allocation, basic, m, n):
-    required = m + n - 1
-
-    while len(basic) < required:
-
-        chosen = None
-
-        for i in range(m):
-            for j in range(n):
-
-                if (i, j) in basic:
-                    continue
-
-                if add_basic_without_cycle(basic, (i, j), m, n):
-                    chosen = (i, j)
-                    break
-
-            if chosen:
-                break
-
-        if chosen is None:
-            raise Exception("Could not create a non-cyclic basis.")
-
-        basic.add(chosen)
-
-        if allocation[chosen[0]][chosen[1]] is None:
-            allocation[chosen[0]][chosen[1]] = Fraction(0)
-
-
-def vam(cost, supply, demand):
-    m = len(cost)
-    n = len(cost[0])
-
-    supply = list(map(Fraction, supply))
-    demand = list(map(Fraction, demand))
-
-    allocation = [[None for _ in range(n)] for _ in range(m)]
-
-    active_rows = set(range(m))
-    active_cols = set(range(n))
-
-    basic = set()
-
-    while active_rows and active_cols:
-
-        row_penalty, col_penalty = find_penalties(
-            cost,
-            active_rows,
-            active_cols
-        )
-
-        candidates = []
-
-        for i, p in row_penalty.items():
-            candidates.append(("row", i, p))
-
-        for j, p in col_penalty.items():
-            candidates.append(("col", j, p))
-
-        max_penalty = max(x[2] for x in candidates)
-
-        candidates = [
-            x for x in candidates
-            if x[2] == max_penalty
-        ]
-
-        # Tie-breaking: choose the line whose cheapest cell has
-        # the smallest cost
-        best = None
-
-        for typ, index, p in candidates:
-
-            if typ == "row":
-                cells = [(cost[index][j], index, j)
-                         for j in active_cols]
-            else:
-                cells = [(cost[i][index], i, index)
-                         for i in active_rows]
-
-            cells.sort()
-
-            candidate = cells[0]
-
-            if best is None or candidate[0] < best[0]:
-                best = candidate
-
-        _, i, j = best
-
-        amount = min(supply[i], demand[j])
-
-        allocation[i][j] = amount
-        basic.add((i, j))
-
-        supply[i] -= amount
-        demand[j] -= amount
-
-        # Both exhausted simultaneously
-        if supply[i] == 0 and demand[j] == 0:
-
-            # Keep row active and remove column.
-            # Degeneracy will be handled after VAM.
-            active_cols.remove(j)
-            active_rows.discard(i)
-
-        elif supply[i] == 0:
-            active_rows.remove(i)
-
-        elif demand[j] == 0:
-            active_cols.remove(j)
-
-    # Convert unused cells to zero for display
-    for i in range(m):
-        for j in range(n):
-            if allocation[i][j] is None:
-                allocation[i][j] = Fraction(0)
-
-    # Remove accidental zero basics if basis is too large
-    basic = {
-        cell for cell in basic
-        if allocation[cell[0]][cell[1]] > 0
-    }
-
-    ensure_non_degenerate(allocation, basic, m, n)
-
-    return allocation, basic
-
-
-def calculate_potentials(cost, basic):
-    m = len(cost)
-    n = len(cost[0])
-
-    u = [None] * m
-    v = [None] * n
-
-    u[0] = Fraction(0)
-
-    changed = True
-
-    while changed:
-        changed = False
-
-        for i, j in basic:
-
-            if u[i] is not None and v[j] is None:
-                v[j] = cost[i][j] - u[i]
-                changed = True
-
-            elif u[i] is None and v[j] is not None:
-                u[i] = cost[i][j] - v[j]
-                changed = True
-
-    # In case the basis is disconnected
-    for i in range(m):
-        if u[i] is None:
-            u[i] = Fraction(0)
-
-            changed = True
-
-            while changed:
-                changed = False
-
-                for r, c in basic:
-
-                    if u[r] is not None and v[c] is None:
-                        v[c] = cost[r][c] - u[r]
-                        changed = True
-
-                    elif u[r] is None and v[c] is not None:
-                        u[r] = cost[r][c] - v[c]
-                        changed = True
-
-    for j in range(n):
-        if v[j] is None:
-            v[j] = Fraction(0)
-
-    return u, v
-
-
-def calculate_deltas(cost, basic, u, v):
-    m = len(cost)
-    n = len(cost[0])
-
-    delta = [[None for _ in range(n)] for _ in range(m)]
-
-    for i in range(m):
-        for j in range(n):
-
-            if (i, j) not in basic:
-                delta[i][j] = (
-                    cost[i][j] - u[i] - v[j]
-                )
-
-    return delta
-
-
-def find_loop(basic, start, m, n):
-    # Find a closed alternating row-column loop
-    # starting from entering cell.
-
-    basic_with_start = set(basic)
-    basic_with_start.add(start)
-
-    def dfs(path, horizontal):
-        current = path[-1]
-
-        if len(path) >= 4 and current == start:
-            return path
-
-        i, j = current
-
-        if horizontal:
-            candidates = [
-                cell for cell in basic_with_start
-                if cell[0] == i and cell != current
-            ]
-        else:
-            candidates = [
-                cell for cell in basic_with_start
-                if cell[1] == j and cell != current
-            ]
-
-        for nxt in candidates:
-
-            if nxt == start and len(path) >= 4:
-                return path + [start]
-
-            if nxt in path:
-                continue
-
-            result = dfs(
-                path + [nxt],
-                not horizontal
-            )
-
-            if result:
-                return result
-
-        return None
-
-    return dfs([start], True)
-
-
-def improve(allocation, basic, entering, loop):
-    signs = {}
-
-    for k, cell in enumerate(loop[:-1]):
-        if k % 2 == 0:
-            signs[cell] = "+"
-        else:
-            signs[cell] = "-"
-
-    minus_values = []
-
-    for cell, sign in signs.items():
-
-        if sign == "-":
-            i, j = cell
-            minus_values.append(allocation[i][j])
-
-    theta = min(minus_values)
-
-    for cell, sign in signs.items():
-
-        i, j = cell
-
-        if sign == "+":
-            allocation[i][j] += theta
-
-        else:
-            allocation[i][j] -= theta
-
-    # Entering cell becomes basic
-    basic.add(entering)
-
-    # Remove zero basic cells
-    for cell in list(basic):
-        i, j = cell
-
-        if allocation[i][j] == 0 and cell != entering:
-            basic.remove(cell)
-
-    return theta
-
-
-def transportation_cost(cost, allocation):
-    total = Fraction(0)
+    total = 0
 
     for i in range(len(cost)):
         for j in range(len(cost[0])):
-            total += cost[i][j] * allocation[i][j]
+            total += allocation[i][j] * cost[i][j]
 
     return total
 
 
-def modi(cost, allocation, basic):
-    iteration = 0
+# ============================================================
+# VOGEL'S APPROXIMATION METHOD
+# ============================================================
+
+def vogel_approximation(supply, demand, cost):
+
+    supply = supply.copy()
+    demand = demand.copy()
+
+    rows = len(supply)
+    cols = len(demand)
+
+    allocation = [[0] * cols for _ in range(rows)]
+
+    row_done = [False] * rows
+    col_done = [False] * cols
+
+    step = 1
+
+    while sum(supply) > 0 and sum(demand) > 0:
+
+        row_penalty = [None] * rows
+        col_penalty = [None] * cols
+
+        # ----------------------------------------------------
+        # Calculate row penalties
+        # ----------------------------------------------------
+
+        for i in range(rows):
+
+            if row_done[i]:
+                continue
+
+            values = [
+                cost[i][j]
+                for j in range(cols)
+                if not col_done[j]
+            ]
+
+            if len(values) >= 2:
+
+                values.sort()
+                row_penalty[i] = values[1] - values[0]
+
+            elif len(values) == 1:
+
+                row_penalty[i] = values[0]
+
+        # ----------------------------------------------------
+        # Calculate column penalties
+        # ----------------------------------------------------
+
+        for j in range(cols):
+
+            if col_done[j]:
+                continue
+
+            values = [
+                cost[i][j]
+                for i in range(rows)
+                if not row_done[i]
+            ]
+
+            if len(values) >= 2:
+
+                values.sort()
+                col_penalty[j] = values[1] - values[0]
+
+            elif len(values) == 1:
+
+                col_penalty[j] = values[0]
+
+        max_row_penalty = max(
+            x for x in row_penalty if x is not None
+        )
+
+        max_col_penalty = max(
+            x for x in col_penalty if x is not None
+        )
+
+        # ----------------------------------------------------
+        # Select row or column
+        # ----------------------------------------------------
+
+        if max_row_penalty >= max_col_penalty:
+
+            selected_row = max(
+                [
+                    i for i in range(rows)
+                    if row_penalty[i] == max_row_penalty
+                ],
+                key=lambda i: -min(
+                    cost[i][j]
+                    for j in range(cols)
+                    if not col_done[j]
+                )
+            )
+
+            selected_col = min(
+                [
+                    j for j in range(cols)
+                    if not col_done[j]
+                ],
+                key=lambda j: cost[selected_row][j]
+            )
+
+        else:
+
+            selected_col = max(
+                [
+                    j for j in range(cols)
+                    if col_penalty[j] == max_col_penalty
+                ],
+                key=lambda j: -min(
+                    cost[i][j]
+                    for i in range(rows)
+                    if not row_done[i]
+                )
+            )
+
+            selected_row = min(
+                [
+                    i for i in range(rows)
+                    if not row_done[i]
+                ],
+                key=lambda i: cost[i][selected_col]
+            )
+
+        # ----------------------------------------------------
+        # Allocate
+        # ----------------------------------------------------
+
+        quantity = min(
+            supply[selected_row],
+            demand[selected_col]
+        )
+
+        allocation[selected_row][selected_col] = quantity
+
+        print(
+            f"Step {step}: Allocate {quantity} units to "
+            f"({source_names[selected_row]} -> "
+            f"{dest_names[selected_col]}), "
+            f"cost/unit = {cost[selected_row][selected_col]}"
+        )
+
+        step += 1
+
+        supply[selected_row] -= quantity
+        demand[selected_col] -= quantity
+
+        if supply[selected_row] == 0:
+            row_done[selected_row] = True
+
+        if demand[selected_col] == 0:
+            col_done[selected_col] = True
+
+    return allocation
+
+
+# ============================================================
+# FIND CLOSED LOOP FOR MODI
+# ============================================================
+
+def find_closed_loop(start, basic_cells):
+
+    basic_cells = set(basic_cells)
+
+    path = [start]
+
+    rows = len(cost)
+    cols = len(cost[0])
+
+    def search(current, horizontal):
+
+        i, j = current
+
+        # Move horizontally
+        if horizontal:
+
+            candidates = [
+                (i, new_j)
+                for new_j in range(cols)
+                if new_j != j
+                and (i, new_j) in basic_cells
+            ]
+
+        # Move vertically
+        else:
+
+            candidates = [
+                (new_i, j)
+                for new_i in range(rows)
+                if new_i != i
+                and (new_i, j) in basic_cells
+            ]
+
+        for next_cell in candidates:
+
+            # Do not reuse cells
+            if next_cell in path:
+                continue
+
+            path.append(next_cell)
+
+            if search(next_cell, not horizontal):
+                return True
+
+            path.pop()
+
+        # Check whether we can return to starting cell
+        if len(path) >= 4:
+
+            if horizontal and i == start[0]:
+                path.append(start)
+                return True
+
+            if not horizontal and j == start[1]:
+                path.append(start)
+                return True
+
+        return False
+
+    if search(start, True):
+        return path
+
+    return None
+
+
+# ============================================================
+# MODI METHOD
+# ============================================================
+
+def modi_method(supply, demand, cost, allocation):
+
+    rows = len(supply)
+    cols = len(demand)
+
+    allocation = copy.deepcopy(allocation)
+
+    iteration = 1
 
     while True:
 
-        iteration += 1
+        # ----------------------------------------------------
+        # Find basic cells
+        # ----------------------------------------------------
 
-        print_table(
-            cost,
-            allocation,
-            [
-                sum(allocation[i][j] for j in range(len(cost[0])))
-                for i in range(len(cost))
-            ],
-            [
-                sum(allocation[i][j] for i in range(len(cost)))
-                for j in range(len(cost[0]))
-            ],
-            f"MODI ITERATION {iteration}"
-        )
+        basic_cells = []
 
-        ensure_non_degenerate(
-            allocation,
-            basic,
-            len(cost),
-            len(cost[0])
-        )
+        for i in range(rows):
+            for j in range(cols):
 
-        u, v = calculate_potentials(cost, basic)
+                if allocation[i][j] > 0:
+                    basic_cells.append((i, j))
 
-        print("\nU values:", u)
-        print("V values:", v)
+        # ----------------------------------------------------
+        # Potentials u and v
+        # ----------------------------------------------------
 
-        delta = calculate_deltas(
-            cost,
-            basic,
-            u,
-            v
-        )
+        u = [None] * rows
+        v = [None] * cols
 
-        print("\nDelta table:")
+        u[0] = 0
 
-        for i in range(len(cost)):
-            row = []
+        changed = True
 
-            for j in range(len(cost[0])):
-                if (i, j) in basic:
-                    row.append("B")
-                else:
-                    row.append(str(delta[i][j]))
+        while changed:
 
-            print(row)
+            changed = False
 
-        negative = []
+            for i, j in basic_cells:
 
-        for i in range(len(cost)):
-            for j in range(len(cost[0])):
+                if u[i] is not None and v[j] is None:
 
-                if delta[i][j] is not None and delta[i][j] < 0:
-                    negative.append(
-                        (delta[i][j], i, j)
+                    v[j] = cost[i][j] - u[i]
+                    changed = True
+
+                elif v[j] is not None and u[i] is None:
+
+                    u[i] = cost[i][j] - v[j]
+                    changed = True
+
+        print("\n" + "-" * 80)
+        print(f"MODI ITERATION {iteration}")
+        print("-" * 80)
+
+        print("u values:", u)
+        print("v values:", v)
+
+        # ----------------------------------------------------
+        # Calculate opportunity costs
+        # Delta = cost - u - v
+        # ----------------------------------------------------
+
+        opportunity = {}
+
+        print("\nOpportunity Costs (Delta_ij):")
+
+        for i in range(rows):
+
+            for j in range(cols):
+
+                if (i, j) not in basic_cells:
+
+                    delta = cost[i][j] - u[i] - v[j]
+
+                    opportunity[(i, j)] = delta
+
+                    print(
+                        f"{source_names[i]} -> "
+                        f"{dest_names[j]} = {delta}"
                     )
 
-        if not negative:
-            print("\nAll Δij >= 0.")
-            print("Solution is OPTIMAL.")
+        # ----------------------------------------------------
+        # Optimality test
+        # ----------------------------------------------------
 
-            return allocation
+        if not opportunity or min(opportunity.values()) >= 0:
 
-        # Most negative delta
-        _, ei, ej = min(negative)
+            print("\nAll Delta_ij >= 0")
+            print("Optimal solution reached.")
 
-        entering = (ei, ej)
+            break
 
-        print(
-            f"\nEntering cell: F{ei+1}W{ej+1}"
+        # ----------------------------------------------------
+        # Entering cell
+        # ----------------------------------------------------
+
+        entering = min(
+            opportunity,
+            key=opportunity.get
         )
 
-        loop = find_loop(
-            basic,
+        print(
+            f"\nEntering cell = "
+            f"{source_names[entering[0]]} -> "
+            f"{dest_names[entering[1]]}"
+        )
+
+        # ----------------------------------------------------
+        # Find closed loop
+        # ----------------------------------------------------
+
+        loop = find_closed_loop(
             entering,
-            len(cost),
-            len(cost[0])
+            basic_cells
         )
 
         if loop is None:
-            raise Exception("No closed loop found.")
 
-        print("\nClosed loop:")
+            print("No valid closed loop found.")
+            break
+
+        print("\nClosed Loop:")
 
         for cell in loop:
+
             print(
-                f"F{cell[0]+1}W{cell[1]+1}",
+                f"({source_names[cell[0]]}, "
+                f"{dest_names[cell[1]]})",
                 end=" -> "
             )
 
         print()
 
-        theta = improve(
-            allocation,
-            basic,
-            entering,
-            loop
-        )
+        # ----------------------------------------------------
+        # + and - positions
+        # ----------------------------------------------------
 
-        print("\nTheta =", theta)
+        loop_without_duplicate = loop[:-1]
+
+        plus_cells = loop_without_duplicate[::2]
+        minus_cells = loop_without_duplicate[1::2]
+
+        print("\nPlus cells:")
+
+        for i, j in plus_cells:
+            print(
+                f"({source_names[i]}, {dest_names[j]})"
+            )
+
+        print("\nMinus cells:")
+
+        for i, j in minus_cells:
+            print(
+                f"({source_names[i]}, {dest_names[j]})"
+            )
+
+        # ----------------------------------------------------
+        # Theta
+        # ----------------------------------------------------
+
+        theta = min(
+            allocation[i][j]
+            for i, j in minus_cells
+        )
 
         print(
-            "New transportation cost =",
-            transportation_cost(cost, allocation)
+            f"\nTheta = {theta}"
         )
 
+        # ----------------------------------------------------
+        # Reallocate
+        # ----------------------------------------------------
 
-if __name__ == "__main__":
+        for i, j in plus_cells:
+            allocation[i][j] += theta
 
-    # CASE STUDY
+        for i, j in minus_cells:
+            allocation[i][j] -= theta
 
-    cost = [
-        [18, 9, 3, 15],
-        [19, 19, 18, 8],
-        [14, 19, 11, 18]
-    ]
+        # ----------------------------------------------------
+        # Remove zero basic cell automatically
+        # ----------------------------------------------------
 
-    supply = [20, 30, 25]
-    demand = [10, 25, 20, 20]
+        iteration += 1
 
-    allocation, basic = vam(
-        cost,
-        supply,
-        demand
-    )
+    return allocation
 
-    print_table(
-        cost,
-        allocation,
-        supply,
-        demand,
-        "VAM INITIAL BASIC FEASIBLE SOLUTION"
-    )
 
-    print(
-        "\nInitial Transportation Cost =",
-        transportation_cost(cost, allocation)
-    )
+# ============================================================
+# MAIN PROGRAM
+# ============================================================
 
-    final_allocation = modi(
-        cost,
-        allocation,
-        basic
-    )
+print("\n" + "=" * 80)
+print("TRANSPORTATION PROBLEM - INPUT DATA")
+print("=" * 80)
 
-    print_table(
-        cost,
-        final_allocation,
-        supply,
-        demand,
-        "FINAL OPTIMAL SOLUTION"
-    )
+print(
+    "Supply:",
+    dict(zip(source_names, supply_original))
+)
+
+print(
+    "Demand:",
+    dict(zip(dest_names, demand_original))
+)
+
+print("\nCost Matrix:")
+
+for i in range(len(cost)):
 
     print(
-        "\nMinimum Transportation Cost =",
-        transportation_cost(cost, final_allocation)
+        f"{source_names[i]}: {cost[i]}"
     )
+
+
+# ============================================================
+# STEP 1: VAM
+# ============================================================
+
+print("\n" + "=" * 80)
+print("STEP 1: VOGEL'S APPROXIMATION METHOD (VAM) - INITIAL BFS")
+print("=" * 80)
+
+initial_allocation = vogel_approximation(
+    supply_original,
+    demand_original,
+    cost
+)
+
+print_table(
+    initial_allocation,
+    cost,
+    "INITIAL BASIC FEASIBLE SOLUTION (VAM)"
+)
+
+initial_cost = total_cost(
+    initial_allocation,
+    cost
+)
+
+print(
+    f"\nInitial (VAM) Total Transportation Cost = "
+    f"{initial_cost}"
+)
+
+
+# ============================================================
+# STEP 2: MODI
+# ============================================================
+
+print("\n" + "=" * 80)
+print("STEP 2: MODI METHOD - OPTIMALITY TEST & IMPROVEMENT")
+print("=" * 80)
+
+optimal_allocation = modi_method(
+    supply_original,
+    demand_original,
+    cost,
+    initial_allocation
+)
+
+
+# ============================================================
+# FINAL OUTPUT
+# ============================================================
+
+print_table(
+    optimal_allocation,
+    cost,
+    "FINAL OPTIMAL ALLOCATION"
+)
+
+final_cost = total_cost(
+    optimal_allocation,
+    cost
+)
+
+print(
+    f"\nMinimum (Optimal) Total Transportation Cost = "
+    f"{final_cost}"
+)

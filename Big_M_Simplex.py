@@ -2,7 +2,6 @@ from fractions import Fraction
 
 
 class Term:
-    # Represents a*M + b
     def __init__(self, m=0, b=0):
         self.m = Fraction(m)
         self.b = Fraction(b)
@@ -20,9 +19,6 @@ class Term:
     def __rsub__(self, other):
         return to_term(other) - self
 
-    def __neg__(self):
-        return Term(-self.m, -self.b)
-
     def __mul__(self, other):
         if isinstance(other, Term):
             if other.m != 0:
@@ -34,18 +30,8 @@ class Term:
 
     __rmul__ = __mul__
 
-    def __truediv__(self, other):
-        other = Fraction(other)
-        return Term(self.m / other, self.b / other)
-
-    def is_positive(self):
+    def positive(self):
         return self.m > 0 or (self.m == 0 and self.b > 0)
-
-    def is_negative(self):
-        return self.m < 0 or (self.m == 0 and self.b < 0)
-
-    def is_zero(self):
-        return self.m == 0 and self.b == 0
 
     def __str__(self):
         if self.m != 0 and self.b != 0:
@@ -65,34 +51,29 @@ def to_term(x):
     return Term(0, x)
 
 
-def fmt(x):
-    if isinstance(x, Term):
-        return str(x)
-    return str(Fraction(x))
+def print_tableau(table, basis, cb, columns, iteration):
 
+    print("\n" + "=" * 100)
+    print("ITERATION", iteration)
+    print("=" * 100)
 
-def print_tableau(tableau, basis, cb, columns, iteration):
-    print("\n" + "=" * 120)
-    print(f"ITERATION {iteration}")
-    print("=" * 120)
+    print("Cb | BV |", " | ".join(columns), "| RHS")
+    print("-" * 100)
 
-    headers = ["Cb", "BV"] + columns + ["RHS"]
+    for i in range(len(table)):
 
-    print(" | ".join(f"{h:^12}" for h in headers))
-    print("-" * 120)
-
-    for i in range(len(tableau)):
-        values = [fmt(cb[i]), basis[i]]
+        row = [str(cb[i]), basis[i]]
 
         for j in range(len(columns)):
-            values.append(fmt(tableau[i][j]))
+            row.append(str(table[i][j]))
 
-        values.append(fmt(tableau[i][-1]))
+        row.append(str(table[i][-1]))
 
-        print(" | ".join(f"{v:^12}" for v in values))
+        print(" | ".join(f"{x:^10}" for x in row))
 
 
 def big_m_simplex(A, b, signs, c):
+
     A = [[Fraction(x) for x in row] for row in A]
     b = [Fraction(x) for x in b]
     c = [Fraction(x) for x in c]
@@ -100,215 +81,167 @@ def big_m_simplex(A, b, signs, c):
     m = len(A)
     n = len(c)
 
-    columns = [f"x{i + 1}" for i in range(n)]
-
-    tableau = [row[:] + [b[i]] for i, row in enumerate(A)]
+    columns = [f"x{i+1}" for i in range(n)]
+    table = [A[i][:] + [b[i]] for i in range(m)]
 
     basis = [None] * m
-    cb = [Term(0) for _ in range(m)]
+    slack = 0
+    artificial = 0
 
-    slack_count = 0
-    surplus_count = 0
-    artificial_count = 0
-
-    # Add slack, surplus and artificial variables
     for i in range(m):
 
         if signs[i] == "<=":
-            slack_count += 1
-            name = f"s{slack_count}"
 
-            for row in tableau:
+            slack += 1
+            name = f"s{slack}"
+
+            for row in table:
                 row.insert(-1, Fraction(0))
 
-            tableau[i][-2] = Fraction(1)
+            table[i][-2] = 1
             columns.append(name)
-
             basis[i] = name
-            cb[i] = Term(0)
-
-        elif signs[i] == ">=":
-            surplus_count += 1
-            surplus_name = f"e{surplus_count}"
-
-            for row in tableau:
-                row.insert(-1, Fraction(0))
-
-            tableau[i][-2] = Fraction(-1)
-            columns.append(surplus_name)
-
-            artificial_count += 1
-            artificial_name = f"A{artificial_count}"
-
-            for row in tableau:
-                row.insert(-1, Fraction(0))
-
-            tableau[i][-2] = Fraction(1)
-            columns.append(artificial_name)
-
-            basis[i] = artificial_name
-            cb[i] = Term(-1, 0)
 
         elif signs[i] == "=":
-            artificial_count += 1
-            artificial_name = f"A{artificial_count}"
 
-            for row in tableau:
+            artificial += 1
+            name = f"A{artificial}"
+
+            for row in table:
                 row.insert(-1, Fraction(0))
 
-            tableau[i][-2] = Fraction(1)
-            columns.append(artificial_name)
+            table[i][-2] = 1
+            columns.append(name)
+            basis[i] = name
 
-            basis[i] = artificial_name
-            cb[i] = Term(-1, 0)
-
-        else:
-            raise ValueError("Constraint must be <=, >= or =")
-
-    # Objective coefficients
-    cj = []
-
-    for value in c:
-        cj.append(Term(0, value))
+    cj = [Term(0, x) for x in c]
 
     for name in columns[n:]:
+
         if name.startswith("A"):
             cj.append(Term(-1, 0))
         else:
             cj.append(Term(0, 0))
 
-    for i in range(m):
-        cb[i] = next(
-            cj[j] for j in range(len(columns))
-            if columns[j] == basis[i]
-        )
+    cb = []
+
+    for name in basis:
+
+        for j in range(len(columns)):
+
+            if columns[j] == name:
+                cb.append(cj[j])
+                break
 
     iteration = 1
 
     while True:
 
         print_tableau(
-            tableau,
+            table,
             basis,
             cb,
             columns,
             iteration
         )
 
-        # Calculate Zj
         zj = []
 
         for j in range(len(columns)):
-            value = Term(0, 0)
+
+            value = Term(0)
 
             for i in range(m):
-                value += cb[i] * tableau[i][j]
+                value += cb[i] * table[i][j]
 
             zj.append(value)
 
-        # Calculate Z
-        z_value = Term(0, 0)
+        z = Term(0)
 
         for i in range(m):
-            z_value += cb[i] * tableau[i][-1]
+            z += cb[i] * table[i][-1]
 
-        # Calculate Cj - Zj
-        reduced = []
-
-        for j in range(len(columns)):
-            reduced.append(cj[j] - zj[j])
+        reduced = [
+            cj[j] - zj[j]
+            for j in range(len(columns))
+        ]
 
         print("\nCj - Zj:")
+
         for j in range(len(columns)):
-            print(f"{columns[j]} = {fmt(reduced[j])}", end="   ")
+            print(
+                f"{columns[j]} = {reduced[j]}",
+                end="   "
+            )
 
-        print("\n")
-
-        # Choose entering variable
         entering = None
 
         for j in range(len(columns)):
 
-            if reduced[j].is_positive():
+            if reduced[j].positive():
 
                 if entering is None:
                     entering = j
 
-                else:
-                    current = reduced[entering]
-                    candidate = reduced[j]
+                elif reduced[j].m > reduced[entering].m:
+                    entering = j
 
-                    if candidate.m > current.m:
-                        entering = j
+                elif (
+                    reduced[j].m == reduced[entering].m
+                    and reduced[j].b > reduced[entering].b
+                ):
+                    entering = j
 
-                    elif (
-                        candidate.m == current.m
-                        and candidate.b > current.b
-                    ):
-                        entering = j
-
-        # Optimality condition
         if entering is None:
-            print("\n" + "=" * 120)
+
+            print("\n\n" + "=" * 100)
             print("OPTIMAL SOLUTION")
-            print("=" * 120)
+            print("=" * 100)
 
-            solution = {}
-
-            for name in columns:
-                solution[name] = Fraction(0)
+            solution = {
+                name: Fraction(0)
+                for name in columns
+            }
 
             for i in range(m):
-                solution[basis[i]] = tableau[i][-1]
-
-            # Check artificial variables
-            for i in range(m):
-                if basis[i].startswith("A") and tableau[i][-1] > 0:
-                    print("\nProblem is INFEASIBLE.")
-                    return
+                solution[basis[i]] = table[i][-1]
 
             print("\nDecision Variables:")
 
             for i in range(n):
                 print(
-                    f"x{i + 1} = "
-                    f"{solution[f'x{i + 1}']}"
+                    f"x{i+1} = "
+                    f"{solution[f'x{i+1}']}"
                 )
 
-            print(f"\nMaximum Z = {z_value}")
-
-            if z_value.b.denominator == 1:
-                print(f"Maximum Z = {z_value.b}")
-
-            else:
-                print(
-                    f"Maximum Z = "
-                    f"{float(z_value.b):.2f}"
-                )
+            print(f"\nMaximum Z = {z}")
+            print(f"Maximum Z = {float(z.b):.2f}")
 
             return
 
         entering_name = columns[entering]
 
         print(
-            f"\nEntering variable = {entering_name}"
+            f"\n\nEntering variable = "
+            f"{entering_name}"
         )
 
-        # Ratio test
         ratios = []
 
         for i in range(m):
 
-            coefficient = tableau[i][entering]
+            if table[i][entering] > 0:
 
-            if coefficient > 0:
-
-                ratio = tableau[i][-1] / coefficient
+                ratio = (
+                    table[i][-1]
+                    / table[i][entering]
+                )
 
                 if ratio >= 0:
                     ratios.append((ratio, i))
 
         if not ratios:
+
             print("\nProblem is UNBOUNDED.")
             return
 
@@ -318,73 +251,58 @@ def big_m_simplex(A, b, signs, c):
         )
 
         print(
-            f"Leaving variable = {basis[leaving]}"
+            f"Leaving variable = "
+            f"{basis[leaving]}"
         )
 
-        print(f"Minimum ratio = {ratio}")
-
-        # Pivot
-        pivot = tableau[leaving][entering]
+        pivot = table[leaving][entering]
 
         for j in range(len(columns) + 1):
-            tableau[leaving][j] /= pivot
+            table[leaving][j] /= pivot
 
-        # Make entering column zero in all other rows
         for i in range(m):
 
             if i != leaving:
 
-                factor = tableau[i][entering]
+                factor = table[i][entering]
 
-                if factor != 0:
-
-                    for j in range(len(columns) + 1):
-                        tableau[i][j] -= (
-                            factor * tableau[leaving][j]
-                        )
+                for j in range(len(columns) + 1):
+                    table[i][j] -= (
+                        factor * table[leaving][j]
+                    )
 
         basis[leaving] = entering_name
         cb[leaving] = cj[entering]
 
         iteration += 1
 
-        if iteration > 50:
-            print("\nToo many iterations.")
-            return
-
 
 # ============================================================
 # CASE STUDY
-# Production Planning Problem
 # ============================================================
 
 A = [
-    [1, 1, 1, 1],
-    [2, 1, 3, 1],
-    [1, 2, 1, 2],
-    [3, 1, 2, 1]
+    [3, 1, 1],
+    [4, 4, 2],
+    [4, 1, 2]
 ]
 
 b = [
-    80,
-    60,
-    70,
-    100
+    45,
+    41,
+    15
 ]
 
 signs = [
     "<=",
-    ">=",
     "=",
-    "<="
+    "="
 ]
 
 c = [
-    50,
-    40,
-    45,
-    30
+    20,
+    6,
+    12
 ]
-
 
 big_m_simplex(A, b, signs, c)
